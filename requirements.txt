@@ -3,3 +3,6 @@ gspread
 oauth2client
 pandas
 plotly
+streamlit-option-menu
+yfinance
+numpy
