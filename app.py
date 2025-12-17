@@ -10,8 +10,114 @@ from streamlit_option_menu import option_menu
 import yfinance as yf
 import numpy as np
 
-# --- SAYFA YAPILANDIRMASI ---
-st.set_page_config(page_title="Bütçe Takip Pro", page_icon="📈", layout="wide")
+# --- SAYFA VE TEMA YAPILANDIRMASI ---
+st.set_page_config(page_title="BütçePlus", page_icon="💳", layout="wide")
+
+# --- TASARIM ENJEKSİYONU (CSS) ---
+# Attığın HTML/Tailwind tasarımındaki renkleri ve fontları buraya işledim.
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Spline+Sans:wght@300;400;500;600;700&display=swap');
+
+    /* GENEL SAYFA YAPISI */
+    html, body, [class*="css"] {
+        font-family: 'Spline Sans', sans-serif;
+    }
+    .stApp {
+        background-color: #23220f; /* Tasarımdaki Koyu Arka Plan */
+        color: #e9e8ce;
+    }
+
+    /* SIDEBAR */
+    section[data-testid="stSidebar"] {
+        background-color: #2d2c1b; /* Sidebar Rengi */
+        border-right: 1px solid #444330;
+    }
+
+    /* METRİK KARTLARI (KUTUCUKLAR) */
+    div[data-testid="metric-container"] {
+        background-color: #2d2c1b;
+        border: 1px solid #444330;
+        padding: 20px;
+        border-radius: 1rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s;
+    }
+    div[data-testid="metric-container"]:hover {
+        border-color: #f9f506; /* Hoverda Neon Sarı */
+    }
+    div[data-testid="metric-container"] label {
+        color: #9e9d47; /* Alt başlık rengi */
+        font-size: 0.9rem;
+    }
+    div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.8rem;
+    }
+
+    /* BUTONLAR */
+    div.stButton > button {
+        background-color: #f9f506;
+        color: #1c1c0d;
+        border-radius: 1rem;
+        border: none;
+        font-weight: 700;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #eae605;
+        transform: scale(1.02);
+        color: #000;
+        box-shadow: 0 0 15px rgba(249, 245, 6, 0.4);
+    }
+    
+    /* SECONDARY BUTONLAR (İPTAL VB.) */
+    button[kind="secondary"] {
+        background-color: transparent;
+        border: 1px solid #9e9d47;
+        color: #e9e8ce;
+    }
+
+    /* INPUT ALANLARI */
+    .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div > div {
+        background-color: #2d2c1b;
+        color: white;
+        border-radius: 1rem;
+        border: 1px solid #444330;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #f9f506;
+        box-shadow: none;
+    }
+
+    /* TABLOLAR */
+    div[data-testid="stDataFrame"] {
+        background-color: #2d2c1b;
+        padding: 1rem;
+        border-radius: 1rem;
+    }
+    
+    /* CUSTOM TABS */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: transparent;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #2d2c1b;
+        border-radius: 1rem 1rem 0 0;
+        color: #9e9d47;
+        font-weight: 600;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #f9f506;
+        color: #000;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SABİTLER ---
 MAAS_GUNU = 19 
@@ -28,7 +134,6 @@ def baglanti_kur():
             return client
     except:
         pass
-    # Yerel dosya (credentials.json) kontrolü - Cloud'da burası çalışmaz, secrets çalışır
     try:
         creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
         client = gspread.authorize(creds)
@@ -45,23 +150,15 @@ def piyasa_verileri_getir():
             "EURTRY": "EURTRY=X",
             "ALTIN_ONS": "GC=F"
         }
-        
-        # Yahoo Finance parametre güncellemeleri gerekebilir, basit tutuyoruz
         data = yf.download(list(tickers.values()), period="1d", interval="1m", progress=False)['Close'].iloc[-1]
         
         usd_try = float(data[tickers["USDTRY"]])
         eur_try = float(data[tickers["EURTRY"]])
         ons_usd = float(data[tickers["ALTIN_ONS"]])
-        
         gram_altin_tl = (ons_usd * usd_try) / 31.1035
         
-        return {
-            "dolar": usd_try,
-            "euro": eur_try,
-            "gram_altin": gram_altin_tl,
-            "ons": ons_usd
-        }
-    except Exception as e:
+        return {"dolar": usd_try, "euro": eur_try, "gram_altin": gram_altin_tl, "ons": ons_usd}
+    except Exception:
         return {"dolar": 35.50, "euro": 37.20, "gram_altin": 3050.0, "ons": 2700.0}
 
 # --- KULLANICI YÖNETİMİ ---
@@ -82,15 +179,20 @@ def kullanici_ekle(kadi, sifre):
     client = baglanti_kur()
     if not client: return False, "Veritabanı bağlantısı yok."
     try:
-        users_sheet = client.open("ButceVerileri").worksheet("Kullanicilar")
+        try:
+            users_sheet = client.open("ButceVerileri").worksheet("Kullanicilar")
+        except:
+             users_sheet = client.open("ButceVerileri").add_worksheet(title="Kullanicilar", rows=100, cols=2)
+             users_sheet.append_row(["KullaniciAdi", "Sifre"])
+
         veriler = users_sheet.get_all_records()
         for user in veriler:
             if str(user['KullaniciAdi']) == kadi:
                 return False, "Bu kullanıcı adı zaten mevcut."
         users_sheet.append_row([kadi, sifre])
         return True, "Kayıt başarılı. Giriş yapabilirsiniz."
-    except:
-         return False, "Veritabanı bağlantı hatası."
+    except Exception as e:
+         return False, f"Hata: {e}"
 
 def sifre_degistir(kadi, yeni_sifre):
     client = baglanti_kur()
@@ -203,47 +305,62 @@ if 'giris_yapildi' not in st.session_state:
     st.session_state['kullanici_adi'] = ""
 
 # ==============================================================================
-# ARAYÜZ
+# ARAYÜZ MANTIĞI
 # ==============================================================================
 
 if not st.session_state['giris_yapildi']:
+    # LOGIN SAYFASI TASARIMI
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.markdown("<h2 style='text-align: center;'>Bütçe Takip Sistemi</h2>", unsafe_allow_html=True)
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        # Logo ve Başlık
+        st.markdown("""
+        <div style="text-align: center;">
+            <div style="display: inline-flex; align-items: center; justify-content: center; width: 60px; height: 60px; background-color: #f9f506; border-radius: 50%; margin-bottom: 20px;">
+                <span style="font-size: 30px;">🔐</span>
+            </div>
+            <h1 style="color: white; font-weight: 800;">Tekrar Hoş Geldiniz</h1>
+            <p style="color: #9e9d47;">Finansal özgürlüğünüze giden yolda devam edin.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         if not baglanti_kur():
-            st.error("Veritabanı bağlantısı yapılamadı. Lütfen Secrets ayarlarını kontrol edin.")
+            st.error("Veritabanı bağlantısı yapılamadı. Secrets ayarlarını kontrol edin.")
             
-        tab_giris, tab_kayit = st.tabs(["Oturum Aç", "Kayıt Ol"])
+        tab_giris, tab_kayit = st.tabs(["Giriş Yap", "Kayıt Ol"])
         
         with tab_giris:
-            kullanici = st.text_input("Kullanıcı Adı").lower().strip()
-            sifre = st.text_input("Şifre", type="password")
-            if st.button("Giriş Yap", use_container_width=True, type="primary"):
+            st.markdown("<br>", unsafe_allow_html=True)
+            kullanici = st.text_input("E-posta veya Kullanıcı Adı", placeholder="ornek@email.com").lower().strip()
+            sifre = st.text_input("Şifre", type="password", placeholder="••••••••")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Giriş Yap", use_container_width=True):
                 if kullanici and sifre:
                     if kullanici_kontrol(kullanici, sifre):
                         st.session_state['giris_yapildi'] = True
                         st.session_state['kullanici_adi'] = kullanici
                         st.rerun()
                     else:
-                        st.error("Hatalı giriş.")
+                        st.error("Hatalı kullanıcı adı veya şifre.")
                 else:
-                    st.warning("Boş alan bırakmayınız.")
+                    st.warning("Lütfen tüm alanları doldurun.")
 
         with tab_kayit:
-            yeni_kadi = st.text_input("Kullanıcı Adı Belirle").lower().strip()
-            yeni_sifre = st.text_input("Şifre Belirle", type="password")
-            yeni_sifre2 = st.text_input("Şifre Tekrar", type="password")
-            if st.button("Kaydol", use_container_width=True):
+            st.markdown("<br>", unsafe_allow_html=True)
+            yeni_kadi = st.text_input("Kullanıcı Adı Belirle", placeholder="Kullanıcı adı").lower().strip()
+            yeni_sifre = st.text_input("Şifre Belirle", type="password", placeholder="••••••••")
+            yeni_sifre2 = st.text_input("Şifre Tekrar", type="password", placeholder="••••••••")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Hesap Oluştur", use_container_width=True):
                 if yeni_kadi and yeni_sifre == yeni_sifre2:
                     basari, mesaj = kullanici_ekle(yeni_kadi, yeni_sifre)
                     if basari: st.success(mesaj)
                     else: st.error(mesaj)
                 else:
-                    st.error("Şifreler uyuşmuyor.")
+                    st.error("Şifreler uyuşmuyor veya alanlar boş.")
 
 else:
-    # --- ANA PANEL ---
+    # --- DASHBOARD MODU ---
     aktif_kullanici = st.session_state['kullanici_adi']
     try:
         df_raw, sheet = verileri_getir(aktif_kullanici)
@@ -253,36 +370,46 @@ else:
 
     piyasa = piyasa_verileri_getir()
 
+    # SIDEBAR TASARIMI
     with st.sidebar:
-        st.markdown("### 💼 Bütçe Yönetimi")
+        st.markdown(f"""
+        <div style="padding: 10px 0; display: flex; align-items: center; gap: 10px;">
+            <div style="width: 40px; height: 40px; background-color: #f9f506; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black;">B</div>
+            <div>
+                <h3 style="margin:0; color: white;">BütçePlus</h3>
+                <span style="font-size: 12px; color: #9e9d47;">{aktif_kullanici}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         selected = option_menu(
-            "Menü", 
-            ["Genel Bakış", "Gelecek Tahmini", "Varlık Yönetimi", "Gelir/Gider Ekle", "Hareketler", "Hesap Ayarları"], 
-            icons=['pie-chart-fill', 'graph-up-arrow', 'wallet2', 'plus-circle', 'file-earmark-spreadsheet', 'gear'], 
-            menu_icon="list", default_index=0,
+            menu_title=None,
+            options=["Genel Bakış", "Gelecek Tahmini", "Varlık Yönetimi", "Gelir/Gider Ekle", "Hareketler", "Hesap Ayarları"],
+            icons=['grid-fill', 'graph-up', 'wallet-fill', 'plus-circle-fill', 'list-task', 'gear-fill'],
+            menu_icon="cast", 
+            default_index=0,
             styles={
-                "container": {"padding": "5px", "background-color": "#262730"},
-                "icon": {"color": "#4CAF50", "font-size": "18px"}, 
-                "nav-link": {"font-size": "15px", "text-align": "left", "margin":"0px"},
-                "nav-link-selected": {"background-color": "#4CAF50"},
+                "container": {"padding": "0!important", "background-color": "transparent"},
+                "icon": {"color": "#9e9d47", "font-size": "18px"}, 
+                "nav-link": {"font-size": "15px", "text-align": "left", "margin": "5px 0", "color": "#e9e8ce", "border-radius": "10px"},
+                "nav-link-selected": {"background-color": "#f9f506", "color": "#1c1c0d", "font-weight": "bold"},
             }
         )
         
         st.divider()
-        st.caption(f"CANLI KUR ({datetime.now().strftime('%H:%M')})")
-        k1, k2 = st.columns(2)
-        k1.metric("USD", f"{piyasa['dolar']:.2f}₺", delta_color="off")
-        k2.metric("EUR", f"{piyasa['euro']:.2f}₺", delta_color="off")
+        st.caption(f"CANLI PİYASA ({datetime.now().strftime('%H:%M')})")
+        m1, m2 = st.columns(2)
+        m1.metric("USD", f"{piyasa['dolar']:.2f}₺", delta_color="off")
+        m2.metric("EUR", f"{piyasa['euro']:.2f}₺", delta_color="off")
         st.metric("Gram Altın", f"{piyasa['gram_altin']:.0f}₺", delta_color="off")
         
         st.divider()
-        st.caption("DÖNEM")
         tum_donemler = donem_listesi_olustur(df_raw)
         if not tum_donemler:
             secilen_bilgi = {"label": "Veri Yok"}
             baslangic, bitis = datetime.now(), datetime.now()
         else:
-            secilen_donem_index = st.selectbox("Dönem:", range(len(tum_donemler)), format_func=lambda x: tum_donemler[x]["label"], label_visibility="collapsed")
+            secilen_donem_index = st.selectbox("Dönem Seçimi:", range(len(tum_donemler)), format_func=lambda x: tum_donemler[x]["label"])
             secilen_bilgi = tum_donemler[secilen_donem_index]
             baslangic, bitis = secilen_bilgi["start"], secilen_bilgi["end"]
         
@@ -291,69 +418,75 @@ else:
         else:
             df = pd.DataFrame()
 
-        st.divider()
-        butce_limiti = st.slider("Limit (TL)", 1000, 50000, 15000, 500)
+        butce_limiti = st.slider("Aylık Limit (TL)", 1000, 100000, 20000, 1000)
         
-        st.divider()
-        st.caption(f"Aktif: {aktif_kullanici.upper()}")
-        if st.button("Çıkış", use_container_width=True):
+        st.markdown("<div style='margin-top: 50px;'></div>", unsafe_allow_html=True)
+        if st.button("Çıkış Yap", use_container_width=True):
             st.session_state['giris_yapildi'] = False
             st.rerun()
 
-    # --- 1. GENEL BAKIŞ ---
+    # --- 1. GENEL BAKIŞ EKRANI (Tasarım 2'ye göre) ---
     if selected == "Genel Bakış":
-        st.title("Genel Bakış")
+        st.markdown("<h2 style='color: white; font-weight: 800;'>Genel Bakış</h2>", unsafe_allow_html=True)
         
-        try:
-            toplam_harcama = df["Tutar"].sum() if not df.empty else 0
-            
-            # Kartlar
-            col_a, col_b, col_c = st.columns(3)
-            col_a.metric("Dönem Harcaması", f"{toplam_harcama:,.0f} TL", delta=f"{butce_limiti - toplam_harcama:,.0f} TL Kaldı")
-            
-            # Durum
-            yuzde = (toplam_harcama / butce_limiti) * 100
-            if yuzde > 100:
-                st.error(f"⚠️ Limit aşıldı! Hedefin **{toplam_harcama - butce_limiti:.0f} TL** üzerindesin.")
-            elif yuzde > 80:
-                st.warning(f"⚠️ Limite yaklaşıyorsun (%{yuzde:.0f}). Dikkatli ol.")
+        toplam_harcama = df["Tutar"].sum() if not df.empty else 0
+        kalan = butce_limiti - toplam_harcama
+        
+        # Kartlar
+        col_k1, col_k2, col_k3 = st.columns(3)
+        with col_k1:
+            st.metric(label="Toplam Harcama", value=f"{toplam_harcama:,.0f} ₺", delta="Bu Ay")
+        with col_k2:
+            # Neon Sarı Kart Efekti için özel HTML yerine Streamlit native ama CSS ile style edilmiş halini kullanıyoruz
+            st.metric(label="Kalan Bütçe", value=f"{kalan:,.0f} ₺", delta=f"Limit: {butce_limiti}")
+        with col_k3:
+            st.metric(label="Harcama Adedi", value=f"{len(df)} İşlem", delta="Aktif")
+
+        st.markdown("---")
+        
+        # Grafikler
+        c_chart1, c_chart2 = st.columns([1, 1])
+        
+        with c_chart1:
+            st.subheader("Harcama Durumu")
+            # Gauge Chart (Renkler tasarıma uygun: Sarı/Gri)
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = toplam_harcama,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                gauge = {
+                    'axis': {'range': [None, butce_limiti * 1.2], 'tickcolor': "white"},
+                    'bar': {'color': "#f9f506"}, # Neon Sarı
+                    'bgcolor': "#23220f",
+                    'borderwidth': 2,
+                    'bordercolor': "#444330",
+                    'steps': [{'range': [0, butce_limiti], 'color': "#444330"}],
+                    'threshold': {'line': {'color': "#ff4b4b", 'width': 4}, 'thickness': 0.75, 'value': butce_limiti}
+                }
+            ))
+            fig_gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "white", 'family': "Spline Sans"})
+            st.plotly_chart(fig_gauge, use_container_width=True)
+
+        with c_chart2:
+            st.subheader("Kategori Dağılımı")
+            if not df.empty:
+                # Pasta grafik renkleri tasarıma uygun
+                fig_pie = px.pie(df, values='Tutar', names='Kategori', hole=0.6, 
+                                 color_discrete_sequence=['#f9f506', '#9e9d47', '#ffffff', '#575747'])
+                fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
+                                      font={'color': "white", 'family': "Spline Sans"},
+                                      showlegend=True)
+                st.plotly_chart(fig_pie, use_container_width=True)
             else:
-                st.success("✅ Bütçe kullanımı dengeli.")
+                st.info("Veri yok.")
 
-            st.divider()
-            
-            c_g1, c_g2 = st.columns([1,1])
-            with c_g1:
-                st.markdown("##### Harcama Durumu")
-                fig_gauge = go.Figure(go.Indicator(
-                    mode = "gauge+number",
-                    value = toplam_harcama,
-                    domain = {'x': [0, 1], 'y': [0, 1]},
-                    gauge = {
-                        'axis': {'range': [None, butce_limiti * 1.2]},
-                        'bar': {'color': "#1976D2"},
-                        'steps': [{'range': [0, butce_limiti], 'color': "lightgray"}],
-                        'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': butce_limiti}}))
-                st.plotly_chart(fig_gauge, use_container_width=True)
-            
-            with c_g2:
-                if not df.empty:
-                    st.markdown("##### Kategori Dağılımı")
-                    fig_pie = px.pie(df, values='Tutar', names='Kategori', hole=0.5)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Hata: {e}")
-
-    # --- 2. GELECEK TAHMİNİ (V6.0 YENİ) ---
+    # --- 2. GELECEK TAHMİNİ ---
     elif selected == "Gelecek Tahmini":
-        st.title("Gelecek Projeksiyonu")
+        st.markdown("<h2 style='color: white; font-weight: 800;'>Gelecek Tahmini</h2>", unsafe_allow_html=True)
         st.info("Mevcut harcama hızınıza göre dönem sonu tahminleri.")
 
         if not df.empty:
-            # Mühendislik Hesabı: Harcama Hızı (Burn Rate)
             bugun = datetime.now()
-            # Başlangıç tarihini datetime'a çevir (Eğer zaten datetime ise çevirme)
             bas_dt = baslangic if isinstance(baslangic, datetime) else baslangic.to_pydatetime()
             bit_dt = bitis if isinstance(bitis, datetime) else bitis.to_pydatetime()
             
@@ -363,175 +496,191 @@ else:
             
             toplam_harcama = df["Tutar"].sum()
             gunluk_ortalama = toplam_harcama / gecen_gun if gecen_gun > 0 else 0
-            
             tahmini_tutar = toplam_harcama + (gunluk_ortalama * kalan_gun)
             
-            # Metrikler
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Günlük Ortalama Harcama", f"{gunluk_ortalama:,.0f} TL")
-            c2.metric("Tahmini Dönem Sonu", f"{tahmini_tutar:,.0f} TL", delta=f"{butce_limiti - tahmini_tutar:,.0f} TL Fark")
-            c3.metric("Kalan Gün", f"{kalan_gun} Gün")
-            
-            st.divider()
-            
-            # Projeksiyon Grafiği
-            st.subheader("Harcama Trend Analizi")
-            
-            # Kümülatif harcama verisi hazırlama
+            col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+            col_t1.metric("Kalan Gün", f"{kalan_gun} Gün")
+            col_t2.metric("Günlük Ortalama", f"{gunluk_ortalama:,.0f} ₺")
+            col_t3.metric("Tahmini Dönem Sonu", f"{tahmini_tutar:,.0f} ₺", delta_color="inverse", delta=f"{tahmini_tutar-butce_limiti:.0f} Fark")
+            col_t4.metric("Limit Kullanımı", f"%{(toplam_harcama/butce_limiti)*100:.1f}")
+
+            # Çizgi Grafik (Yeşil Çizgi, Kırmızı Limit)
             df_chart = df.sort_values("Tarih_Obj")
             df_chart['Kumulatif'] = df_chart['Tutar'].cumsum()
             
-            # Gerçekleşen veri
             dates = df_chart['Tarih_Obj'].tolist()
             values = df_chart['Kumulatif'].tolist()
             
-            # Tahmin verisi (Bugünden dönem sonuna)
             if kalan_gun > 0:
-                last_val = values[-1]
                 future_dates = [bugun + timedelta(days=i) for i in range(1, kalan_gun + 1)]
-                future_values = [last_val + (gunluk_ortalama * i) for i in range(1, kalan_gun + 1)]
+                future_values = [values[-1] + (gunluk_ortalama * i) for i in range(1, kalan_gun + 1)]
                 
-                # Grafik çizimi
                 fig = go.Figure()
+                # Gerçekleşen - Neon Yeşil
+                fig.add_trace(go.Scatter(x=dates, y=values, mode='lines+markers', name='Gerçekleşen', 
+                                         line=dict(color='#f9f506', width=4)))
+                # Tahmin - Kesikli
+                fig.add_trace(go.Scatter(x=[dates[-1]] + future_dates, y=[values[-1]] + future_values, 
+                                         mode='lines', name='Tahmin', 
+                                         line=dict(color='#9e9d47', width=3, dash='dash')))
+                # Limit
+                fig.add_hline(y=butce_limiti, line_dash="dot", line_color="#ff4b4b", annotation_text="Limit")
                 
-                # Gerçekleşen
-                fig.add_trace(go.Scatter(x=dates, y=values, mode='lines+markers', name='Gerçekleşen', line=dict(color='#4CAF50', width=3)))
-                
-                # Tahmin
-                fig.add_trace(go.Scatter(x=[dates[-1]] + future_dates, y=[values[-1]] + future_values, mode='lines', name='Tahmin (Lineer)', line=dict(color='#FF5722', width=3, dash='dash')))
-                
-                # Limit Çizgisi
-                fig.add_hline(y=butce_limiti, line_dash="dot", annotation_text="Bütçe Limiti", annotation_position="top left", line_color="red")
-                
-                fig.update_layout(title="Harcama Projeksiyonu", xaxis_title="Tarih", yaxis_title="Toplam Tutar (TL)", template="plotly_white")
+                fig.update_layout(title="Kümülatif Harcama ve Tahmin", 
+                                  paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                  font={'color': "white", 'family': "Spline Sans"},
+                                  xaxis_title="", yaxis_title="Tutar (TL)")
                 st.plotly_chart(fig, use_container_width=True)
-                
-                if tahmini_tutar > butce_limiti:
-                    st.error(f"⚠️ **Uyarı:** Mevcut hızla giderseniz bütçeyi **{tahmini_tutar - butce_limiti:,.0f} TL** aşacaksınız.")
-                else:
-                    st.success("✅ **Durum İyi:** Bu hızla giderseniz bütçe içinde kalacaksınız.")
-            else:
-                st.info("Dönem sona ermiş, tahmin yapılamaz.")
-
         else:
-            st.warning("Tahmin için yeterli veri yok.")
+            st.warning("Tahmin için veri yok.")
 
-    # --- 3. VARLIK YÖNETİMİ ---
+    # --- 3. VARLIK YÖNETİMİ (Tasarım 3'e göre) ---
     elif selected == "Varlık Yönetimi":
-        st.title("Varlık & Servet Yönetimi")
-        st.info("Döviz ve Altın varlıklarınızı girin, sistem anlık kur ile toplam servetinizi hesaplasın.")
-
+        st.markdown("<h2 style='color: white; font-weight: 800;'>Varlık Yönetimi</h2>", unsafe_allow_html=True)
+        
         varlik_row, row_num, ws_varlik = varliklari_getir(aktif_kullanici)
-        
-        default_tl = float(varlik_row['TL_Nakit']) if varlik_row else 0.0
-        default_usd = float(varlik_row['Dolar']) if varlik_row else 0.0
-        default_eur = float(varlik_row['Euro']) if varlik_row else 0.0
-        default_gold = float(varlik_row['Gram_Altin']) if varlik_row else 0.0
+        d_tl = float(varlik_row['TL_Nakit']) if varlik_row else 0.0
+        d_usd = float(varlik_row['Dolar']) if varlik_row else 0.0
+        d_eur = float(varlik_row['Euro']) if varlik_row else 0.0
+        d_gold = float(varlik_row['Gram_Altin']) if varlik_row else 0.0
 
-        col_input, col_result = st.columns([1, 1])
-        
-        with col_input:
-            with st.form("varlik_formu"):
-                st.subheader("Cüzdanım")
-                v_tl = st.number_input("Nakit TL", min_value=0.0, value=default_tl, step=100.0)
-                v_usd = st.number_input("Dolar ($)", min_value=0.0, value=default_usd, step=10.0)
-                v_eur = st.number_input("Euro (€)", min_value=0.0, value=default_eur, step=10.0)
-                v_gold = st.number_input("Gram Altın", min_value=0.0, value=default_gold, step=1.0)
+        toplam_servet = d_tl + (d_usd * piyasa['dolar']) + (d_eur * piyasa['euro']) + (d_gold * piyasa['gram_altin'])
+
+        # Büyük Toplam Servet Kartı (Sarı Arkaplanlı)
+        st.markdown(f"""
+        <div style="background-color: #f9f506; border-radius: 1.5rem; padding: 2rem; color: black; margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <p style="margin: 0; font-weight: 600; font-size: 1rem; opacity: 0.8;">Toplam Tahmini Servet</p>
+                <h1 style="margin: 0; font-weight: 900; font-size: 3.5rem; letter-spacing: -1px;">₺ {toplam_servet:,.0f}</h1>
+            </div>
+            <div style="background-color: rgba(255,255,255,0.4); padding: 0.5rem 1rem; border-radius: 1rem; font-weight: bold;">
+                💰 Varlıklarım
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("### Varlık Girişi")
+            with st.container(border=True):
+                v_tl = st.number_input("Türk Lirası (₺)", value=d_tl, step=100.0)
+                v_usd = st.number_input("Amerikan Doları ($)", value=d_usd, step=10.0)
+                v_eur = st.number_input("Euro (€)", value=d_eur, step=10.0)
+                v_gold = st.number_input("Gram Altın (gr)", value=d_gold, step=1.0)
                 
-                if st.form_submit_button("Varlıkları Güncelle & Kaydet", type="primary"):
+                if st.button("Varlıkları Güncelle", use_container_width=True):
                     if ws_varlik:
                         varlik_guncelle(aktif_kullanici, v_tl, v_usd, v_eur, v_gold, row_num, ws_varlik)
-                        st.success("Varlıklar güncellendi!")
+                        st.success("Güncellendi!")
                         time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("Veritabanı bağlantı hatası.")
 
-        with col_result:
-            st.subheader("Toplam Servet Analizi")
-            
-            toplam_usd_tl = v_usd * piyasa['dolar']
-            toplam_eur_tl = v_eur * piyasa['euro']
-            toplam_gold_tl = v_gold * piyasa['gram_altin']
-            toplam_servet = v_tl + toplam_usd_tl + toplam_eur_tl + toplam_gold_tl
-            
-            st.metric("TOPLAM SERVET (TL)", f"{toplam_servet:,.2f} ₺", delta_color="off")
-            
+        with c2:
+            st.markdown("### Varlık Dağılımı")
             labels = ['TL', 'Dolar', 'Euro', 'Altın']
-            values = [v_tl, toplam_usd_tl, toplam_eur_tl, toplam_gold_tl]
-            
-            if toplam_servet > 0:
-                fig_asset = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
-                fig_asset.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+            values = [v_tl, v_usd * piyasa['dolar'], v_eur * piyasa['euro'], v_gold * piyasa['gram_altin']]
+            if sum(values) > 0:
+                fig_asset = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.7,
+                                                   marker=dict(colors=['#f9f506', '#1c1c0d', '#9e9d47', '#ffffff']))])
+                fig_asset.update_layout(showlegend=True, paper_bgcolor="rgba(0,0,0,0)", 
+                                        font={'color': "white", 'family': "Spline Sans"},
+                                        annotations=[dict(text='Varlıklar', x=0.5, y=0.5, font_size=20, showarrow=False, font_color='white')])
                 st.plotly_chart(fig_asset, use_container_width=True)
-            else:
-                st.warning("Henüz varlık girmediniz.")
 
-    # --- 4. EKLEME (HIZLI ABONELİKLER İLE) ---
+    # --- 4. GELİR/GİDER EKLE (Tasarım 5'e göre) ---
     elif selected == "Gelir/Gider Ekle":
-        st.title("İşlem Ekle")
+        st.markdown("<h2 style='color: white; font-weight: 800;'>Yeni İşlem Ekle</h2>", unsafe_allow_html=True)
         
-        # Hızlı Abonelikler
-        st.subheader("Hızlı Ekle")
-        hc1, hc2, hc3, hc4 = st.columns(4)
-        if hc1.button("🍔 Yemek (200 TL)"):
-            sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), "Yemek", 200, "Hızlı Yemek"])
-            st.toast("Yemek eklendi!")
-            time.sleep(1)
-            st.rerun()
-        if hc2.button("🚌 Ulaşım (20 TL)"):
-            sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), "Ulaşım", 20, "Hızlı Ulaşım"])
-            st.toast("Ulaşım eklendi!")
-            time.sleep(1)
-            st.rerun()
-        if hc3.button("☕ Kahve (100 TL)"):
-            sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), "Yemek", 100, "Kahve"])
-            st.toast("Kahve eklendi!")
-            time.sleep(1)
-            st.rerun()
+        # Hızlı Ekle Butonları (Grid yapısı)
+        st.markdown("##### ⚡ Hızlı Ekle")
+        h1, h2, h3, h4 = st.columns(4)
         
+        # Hızlı ekle fonksiyonu
+        def hizli_ekle(kategori, tutar, aciklama):
+            sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), kategori, tutar, aciklama])
+            st.toast(f"{aciklama} eklendi!", icon="✅")
+            time.sleep(1)
+            st.rerun()
+
+        if h1.button("🍔 Yemek (200₺)", use_container_width=True): hizli_ekle("Yemek", 200, "Hızlı Yemek")
+        if h2.button("🚌 Ulaşım (20₺)", use_container_width=True): hizli_ekle("Ulaşım", 20, "Hızlı Ulaşım")
+        if h3.button("☕ Kahve (100₺)", use_container_width=True): hizli_ekle("Yemek", 100, "Kahve")
+        if h4.button("🛒 Market (500₺)", use_container_width=True): hizli_ekle("Market", 500, "Hızlı Market")
+
         st.markdown("---")
         
-        with st.form("ekle"):
-            st.subheader("Manuel Giriş")
-            tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0)
-            kat = st.selectbox("Kategori", ["Yemek", "Ulaşım", "Market", "Fatura", "Eğlence", "Giyim", "Teknoloji", "Diğer", "Maaş"])
-            acik = st.text_input("Açıklama")
-            if st.form_submit_button("Kaydet", type="primary"):
-                sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), kat, tutar, acik])
-                st.success("Kaydedildi.")
-                time.sleep(1)
-                st.rerun()
+        col_form1, col_form2 = st.columns([2, 1])
+        with col_form1:
+             with st.container(border=True):
+                st.markdown("##### Manuel Giriş")
+                tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
+                kategori = st.selectbox("Kategori", ["Yemek", "Ulaşım", "Market", "Fatura", "Eğlence", "Giyim", "Teknoloji", "Diğer", "Maaş"])
+                aciklama = st.text_area("Açıklama", placeholder="İşlem hakkında not ekle...")
+                
+                c_btn1, c_btn2 = st.columns(2)
+                if c_btn1.button("Kaydet", use_container_width=True):
+                    sheet.append_row([aktif_kullanici, datetime.now().strftime("%Y-%m-%d %H:%M"), kategori, tutar, aciklama])
+                    st.success("İşlem kaydedildi.")
+                    time.sleep(1)
+                    st.rerun()
 
-    # --- 5. HAREKETLER ---
+    # --- 5. HAREKETLER (Tasarım 6'ya göre) ---
     elif selected == "Hareketler":
-        st.title("İşlem Geçmişi")
-        if not df.empty:
-            st.download_button("Excel İndir", df.to_csv().encode('utf-8'), "rapor.csv", "text/csv")
-            st.dataframe(df[["Tarih", "Kategori", "Tutar", "Aciklama" if "Aciklama" in df.columns else "Açıklama"]], use_container_width=True)
+        st.markdown("<h2 style='color: white; font-weight: 800;'>İşlem Geçmişi</h2>", unsafe_allow_html=True)
         
-            st.markdown("---")
-            st.subheader("İşlem Sil")
-            liste = [f"{row['Tarih']} | {row['Tutar']} TL | {row['Kategori']}" for i, row in df.iterrows()]
-            silinecek = st.selectbox("Silinecek işlem:", liste)
-            if st.button("Seçili İşlemi Sil", type="secondary"):
-                idx = df.index[liste.index(silinecek)]
-                sheet.delete_rows(idx + 2)
-                st.success("Silindi.")
-                time.sleep(1)
-                st.rerun()
+        c_filter, c_down = st.columns([3, 1])
+        with c_filter:
+            search = st.text_input("Ara...", placeholder="Kategori veya açıklama ara")
+        with c_down:
+            st.markdown("<br>", unsafe_allow_html=True) # Hizalama için boşluk
+            if not df.empty:
+                st.download_button("Excel İndir", df.to_csv().encode('utf-8'), "rapor.csv", "text/csv", use_container_width=True)
+
+        if not df.empty:
+            # Filtreleme
+            if search:
+                df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
+
+            # Tablo Gösterimi
+            st.dataframe(
+                df[["Tarih", "Kategori", "Tutar", "Aciklama"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Tutar": st.column_config.NumberColumn("Tutar (TL)", format="%.2f ₺"),
+                    "Tarih": st.column_config.DatetimeColumn("Tarih", format="D MMM YYYY, HH:mm"),
+                }
+            )
+            
+            st.markdown("### İşlem Sil")
+            with st.container(border=True):
+                liste = [f"{row['Tarih']} | {row['Tutar']} TL | {row['Kategori']} | {row['Aciklama']}" for i, row in df.iterrows()]
+                silinecek = st.selectbox("Silinecek işlem:", liste)
+                if st.button("Seçili İşlemi Sil", type="secondary", use_container_width=True):
+                    idx = df.index[liste.index(silinecek)]
+                    sheet.delete_rows(idx + 2)
+                    st.success("Silindi.")
+                    time.sleep(1)
+                    st.rerun()
+        else:
+            st.info("Henüz işlem yok.")
 
     # --- 6. AYARLAR ---
     elif selected == "Hesap Ayarları":
-        st.title("Ayarlar")
-        with st.form("sifre"):
+        st.markdown("<h2 style='color: white; font-weight: 800;'>Ayarlar</h2>", unsafe_allow_html=True)
+        
+        with st.container(border=True):
+            st.markdown("### 🔒 Güvenlik")
             yeni = st.text_input("Yeni Şifre", type="password")
-            if st.form_submit_button("Güncelle"):
+            if st.button("Şifreyi Güncelle"):
                 sifre_degistir(aktif_kullanici, yeni)
                 st.success("Şifre güncellendi.")
         
-        st.divider()
-        if st.button("Hesabımı Sil", type="primary"):
-            hesap_sil(aktif_kullanici)
-            st.session_state['giris_yapildi'] = False
-            st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("### ⚠️ Tehlikeli Bölge")
+            st.warning("Bu işlem geri alınamaz. Tüm verileriniz silinecektir.")
+            if st.button("Hesabımı Sil", type="primary"):
+                hesap_sil(aktif_kullanici)
+                st.session_state['giris_yapildi'] = False
+                st.rerun()
